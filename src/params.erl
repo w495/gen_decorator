@@ -9,7 +9,9 @@
 %-decorate(fun mul_and_add/2, [10,3]).
 
 -decorate([10000]).
--decorate([1, 2]).
+
+%% н
+%-decorate([fun erlang:now/0, 2]).
 simple(A, B) ->
     A+B.
 

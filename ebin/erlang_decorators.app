@@ -6,4 +6,4 @@
               {mod,{erlang_decorators_app,[]}},
               {env,[]},
               {modules,[decorators,erlang_decorators_app,
-                        erlang_decorators_sup,gen_dec,params,render]}]}.
+                        erlang_decorators_sup,gen_decorator,params,render]}]}.

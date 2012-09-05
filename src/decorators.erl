@@ -7,7 +7,7 @@
 
 
 parse_transform(Ast,Options)->
-    gen_dec:transform(Ast, [
+    gen_decorator:transform(Ast, [
         {module,   ?MODULE},
         {name,     decorate}
         |Options]
