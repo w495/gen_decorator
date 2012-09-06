@@ -1,6 +1,6 @@
 %%
-%% @file    gen_decorator.erl
-%%          Реализация обощенного декоратора.
+%% @file    gen_decorator.erl   
+%%          Реализация обощенного декоратора (generic decorator).
 %%          Для создания декоратора необходимо
 %%
 %% 
@@ -60,14 +60,14 @@
 %% В отличие от erlang:fun_info/1 призвана описывать именно исходную функцию,
 %% а не ту, которая была передана в декоратор.
 -type function_info()  ::
-    [{arity,integer()}|{function,atom()}|{module,atom()}|{line,integer()}].
+    [{arity,integer()}|{name,atom()}|{module,atom()}|{line,integer()}].
 
 %% Преобразует синтаксическое дерево.
 %% Интерфейсная функция
 %% Псевдоним для transform/2.
 -spec   parse_transform(
             Ast         ::erl_parse:abstract_form(), %% Синтаксическое дерево.
-            Options     ::decorator_options()        %% Насройки декоратора
+            Options     ::list(compile:options())    %% Насройки трансформации
         ) ->    erl_parse:abstract_form().           %% Новое дерево.
 
 %% Преобразует синтаксическое дерево.
@@ -192,8 +192,6 @@
 %% Константы и макросы
 %% ==========================================================================
 
--define(DEBUG, true).
-
 -ifdef(DEBUG).
     -ifndef(debug).
         -define(debug(T, F),
@@ -214,10 +212,11 @@
     -endif. % pprint
 -else.
     -ifndef(debug).
-        -define(debug(F,A),[]).
+        -define(debug(W,T,F),[]).
+        -define(debug(T,F),[]).
     -endif. % debug
     -ifndef(pprint).
-        -define(pprint(A),[]).
+        -define(pprint(Ast),[]).
     -endif. % pprint
 -endif. % DEBUG
 
@@ -244,12 +243,11 @@ behaviour_info(_) ->
 %% @spec    parse_transform(erl_parse:abstract_form(), decorator_options()) ->
 %%              erl_parse:abstract_form().
 %%
-parse_transform(Ast,Options)->
+parse_transform(Ast,_options)->
     gen_dec:transform(Ast, [
         {module,   ?MODULE},
         {name,     decorate}
-        |Options]
-    ).
+    ]).
 
 %% @doc     Декорирует. Функция является частью функционального интерфейса 
 %%          этого модуля. Должна быть определена в настоящих декораторах.
@@ -266,13 +264,11 @@ parse_transform(Ast,Options)->
 %% @param   Function_info   function_info()     информация об исходной функции.
 %%
 decorate(Function, Fargs, _dargs, _options) ->
-    fun()->
-        ?debug("Function",          "~p", [Function]),
-        ?debug("Function  args",    "~p", [Fargs]),
-        ?debug("Decorator args",    "~p", [_dargs]),
-        ?debug("Decorator options", "~p", [_options]),
-        erlang:applydecs(Function, Fargs)
-    end.
+    ?debug("Function",          "~p", [Function]),
+    ?debug("Function  args",    "~p", [Fargs]),
+    ?debug("Decorator args",    "~p", [_dargs]),
+    ?debug("Decorator options", "~p", [_options]),
+    erlang:apply(Function, Fargs).
 
 
 %% @doc     Преобразует синтаксическое дерево. Эту функцию следует использовать 
@@ -368,36 +364,32 @@ applydecs(#function{arity=Arity,line=Line}=Node,#dstate{dlist=Dlist}=Odstate)
         argnms  = Argnames,
         argabs  = args(Line, Argnames)
     },
+    %%
+    %% В этом списке оказался важен порядок,
+    %% При применении нескольких разных декораторов, от разных parse_transform.
+    %%
     [
-        %% Оригинальная функция, но с новым именем.
-        original(Node, Dstate),
         %% Функия с именем оригинальной функии;
         %% для вызова цепочки декораторов.
-        trampoline(Node, Dstate)
+        trampoline(Node, Dstate),
+        %% Оригинальная функция, но с новым именем.
+        original(Node, Dstate)
         %% Цепочка декораторов, 
         %% функций каскадно вызывающих декорирующие функии.
         | dchain(Node,Dstate)
     ].
 
-%% @doc     Переименовывает оригинальную функцию.
-%%          Эта переименованная функция будет перво в цепочке декораторов.
-%%
-%% @spec    original(record(function), record(dstate))-> record(function)
-%% 
-original(#function{}=Node, _dstate) ->
-    Node#function{name=rfname(Node)}.
-
 %% @doc     Возвращает замену оригинальной функции, 
 %%          переадресовывая вызов на цепь декораторов.
 %%          Количество аркументов не меняется.
-%%          Важно отметить, что от оригинальной функции в новую одноименную функцию
-%%          переходит только имя. Все сопоставления с образцом, 
-%%          и оградительные выражения остаются с переименованной 
-%%          старой функцией.
+%%          Важно отметить, что от оригинальной функции 
+%%          в новую одноименную функцию переходит только имя. 
+%%          Все сопоставления с образцом, и оградительные выражения 
+%%          остаются с переименованной старой функцией.
 %%
 %% @spec    trampoline(record(function), record(dstate))-> record(function)
 %% 
-trampoline(#function{line=Line}=Node, #dstate{dllen=Dllen, argabs=Argabs}) ->
+trampoline(#function{line=Line}=Node,#dstate{dllen=Len,argabs=Argabs}=Dstate) ->
     Node#function{
         clauses = [
             #clause{
@@ -407,7 +399,7 @@ trampoline(#function{line=Line}=Node, #dstate{dllen=Dllen, argabs=Argabs}) ->
                 body    =   [
                     #call{ %% Вызов последнего декоратора в цепи.
                         line        =   Line,
-                        function    =   {atom, Line, wfname(Node, Dllen)},
+                        function    =   {atom, Line, wfname(Node, Dstate,Len)},
                         args        =   Argabs
                     }
                 ]
@@ -415,13 +407,21 @@ trampoline(#function{line=Line}=Node, #dstate{dllen=Dllen, argabs=Argabs}) ->
         ]
     }.
 
+%% @doc     Переименовывает оригинальную функцию.
+%%          Эта переименованная функция будет перво в цепочке декораторов.
+%%
+%% @spec    original(record(function), record(dstate))-> record(function)
+%%
+original(#function{}=Node, Dstate) ->
+    Node#function{name=rfname(Node, Dstate)}.
+
 %% @doc     Возвращает цепочку декораторов для добавления 
 %%          в синтаксическое дерево.
 %%
 %% @spec    dchain(record(function), record(dstate))-> [record(function)]
 %%
-dchain(Node, #dstate{dlist=Dlist, dllen=Dllen}=Dstate) ->
-    Dinds = lists:zip(Dlist, lists:seq(1, Dllen)),
+dchain(Node, #dstate{dlist=Dlist, dllen=Len}=Dstate) ->
+    Dinds = lists:zip(Dlist, lists:seq(1, Len)),
     [
         dec(Node,Dstate#dstate{dargs=Dargs,dind=Dind})
         || { #attribute{value=Dargs},Dind} <- Dinds
@@ -434,7 +434,7 @@ dchain(Node, #dstate{dlist=Dlist, dllen=Dllen}=Dstate) ->
 %%
 dec(#function{line=Line}=Node,#dstate{dind=Dind,argabs=Argabs}=Dstate) ->
     Node#function{
-        name    =   wfname(Node, Dind),
+        name    =   wfname(Node, Dstate, Dind),
         clauses =   [
             #clause{
                 line   = Line,
@@ -465,7 +465,7 @@ dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
             fmod     = Fmod,
             dind     = Dind,
             argnms   = Argnames
-        }
+        }=Dstate
     ) ->
     #call{
         line=Line,
@@ -476,7 +476,7 @@ dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
         },
         args=[
             %% Декорируемая функция
-            {'fun',Line,{function, wfname(Node, Dind-1), Arity}},
+            {'fun',Line,{function, wfname(Node, Dstate, Dind-1), Arity}},
             %% Аргументы Функции
             arglist(Line, Argnames),
             %% Аргументы декоратора
@@ -488,12 +488,13 @@ dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
                 %% повторно вычислять не придется,
                 %% если понадобится
                 {arity,     Arity},
-                {function,  Ofname},
+                {name,      pfname(Ofname, Dstate)},
                 {module,    Fmod},
                 {line,      Line}
             ])
         ]
     }.
+
 
 %% @doc     Возвращет абстрактное представление аргументов функции 
 %%          на основе их списка. Сами аргументы задаются атомов вида 'Arg'
@@ -532,19 +533,36 @@ vals(Line,List) ->
 %% @doc     Возвращет новое имя для переданной исходной функции.
 %%          Эта функция будет перво в цепочке декораторов.
 %%
-%% @spec    rfname(record(function))-> atom().
+%% @spec    rfname(record(function), record(dstate))-> atom().
 %%
-rfname(#function{name=Name, arity=Arity}) ->
-    to_atom(['<', Name, '/', Arity, '-dec-0>']).
+rfname(#function{name=Ofname, arity=Arity}, #dstate{name=Dname}) ->
+    to_atom(['<', Ofname, '/', Arity, '-dec-', Dname, '-0>']).
 
 %% @doc     Возвращет имя для функции из цепочки декораторов.
 %%          Number --- номер декоратора в цепочке.
 %%
-%% @spec    wfname(record(function), integer())-> atom().
+%% @spec    wfname(record(function), record(dstate), integer())-> atom().
 %%
-wfname(#function{name=Name, arity=Arity}, Number) ->
-    to_atom(['<', Name, '/', Arity, '-dec-', Number, '>']).
+wfname(#function{name=Ofname, arity=Arity}, #dstate{name=Dname}, Number) ->
+    to_atom(['<', Ofname, '/', Arity, '-dec-', Dname, '-', Number, '>']).
 
+
+%% @doc     Из имени декорированной функции выделяет имя исходной функции. 
+%%          Если функция была декорирована несколько раз, разными декораторами,
+%%          то ее имя в верхних (последних) декораторах теряется.
+%%          Это не удивительно, потому что разныые parse_transform не 
+%%          знают друг о друге. pfname/1 решает эту проблему.
+%%
+%% @spec    pfname(atom(), record(dstate))-> atom().
+%%
+pfname(Ofname, _Dstate)->
+    erlang:list_to_atom(
+        re:replace(
+            erlang:atom_to_list(Ofname),
+            "(<)+||(/\\d-dec-.+-\\d>)+", [],
+            [{return, list}, global]
+        )
+    ).
 
 %% @doc     Собирает атом, из переданного списка термов.
 %%          Не самая эффективная реализация, 
