@@ -1,0 +1,11 @@
+{application, gen_decorator_examples, [
+    {description, ""},
+    {vsn, "0.1"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {mod, {gen_decorator_examples_app, []}},
+    {env, []}
+]}.
