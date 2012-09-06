@@ -1,45 +1,190 @@
 -module(gen_decorator).
 
 %% ==========================================================================
-%% Экспортируемые функции
+%% Экспортируемые функции и типы
 %% ==========================================================================
 
 -export([
-    behaviour_info/1
-]).
-
--export([
-    %% Преобразует синтаксическое дерево. Интерфейсная функция.
-    %% Нужна для того, чтобы этот модуль можно было использовать
-    %% в качестве декоратора. 
-    %% Должна быть переопределена в настоящих декораторах
+    %% Преобразует синтаксическое дерево. Интерфейсная функция. Нужна для того,
+    %% чтобы этот модуль можно было использовать в качестве декоратора.
+    %% Должна быть переопределена в настоящих декораторах.
     parse_transform/2,
-    %% Преобразует синтаксическое дерево.
+    %% Преобразует синтаксическое дерево. Эту функцию следует использовать 
+    %% для определения parse_transform/2 в настоящих декораторах.
     transform/2,
+    %% Занимается непосредственно декорированием.
+    %% Функция является частью функционального интерфейса этого модуля.
+    %% Должна быть определена в настоящих декораторах.
+    %% Оставлена, для отладки и тестирования декораторов и в качестве примера.
+    %% В текущей реализации просто вычисляет декорируемую функцию.
     decorate/4
 ]).
 
+-export([
+    %% Возвращает функциональный интерфейс.
+    behaviour_info/1 
+]).
+
+-export_type([
+    %% Насройки декоратора.
+    decorator_options/0,
+    %% Информация о декорируемой функции.
+    function_info/0
+]).
+
 %% ==========================================================================
-%% Экспортируемые функции
+%% Спецификации 
 %% ==========================================================================
 
-%% @doc Настройки декораторв
+%% @doc Насройки декоратора:
+%%  * name     --- имя декоратора, как атрибута модуля;
+%%  * module   --- имя модуля, в котором опрелен декоратор;
+%%  * function --- декорирующая функция.
+%% Если при создании декоратора, какая-то из настроек не указана, 
+%% то берется настройка по-умолчанию.
+%% По-умолчанию:
+%%  * name      = decorate;
+%%  * module    = ?MODULE, этот модуль;
+%%  * function  = decorate.
+%%
+-type decorator_options() ::
+    [{name, atom()}|{module, atom()}|{function, atom()}].
+
+%% @doc Информация о декорируемой функции.
+%% В отличие от erlang:fun_info/1 призвана описывать именно исходную функцию,
+%% а не ту, которая была передана в декоратор.
+-type function_info()  ::
+    [{arity,integer()}|{function,atom()}|{module,atom()}|{line,integer()}].
+
+%% Преобразует синтаксическое дерево.
+%% Интерфейсная функция
+%% Псевдоним для transform/2.
+-spec   parse_transform(
+            Ast         ::erl_parse:abstract_form(), %% Синтаксическое дерево.
+            Options     ::decorator_options()        %% Насройки декоратора
+        ) ->    erl_parse:abstract_form().           %% Новое дерево.
+
+%% Преобразует синтаксическое дерево.
+-spec   transform(
+            Ast         ::erl_parse:abstract_form(), %% Синтаксическое дерево.
+            Options     ::decorator_options()        %% Насройки декоратора
+        ) ->    erl_parse:abstract_form().           %% Новое дерево
+
+%% Занимается непосредственно декорированием.
+-spec   decorate(
+            %% Декорируемая функция.
+            Function        ::  function(),
+            %% Список аргументов декорируемой функции.
+            Function_args   ::  [any()],
+            %% Aргументы декоратора. Может быть только один
+            %% (т.к. мы в рамках синтаксических правил erlang)
+            %% Потому мы pекомендуем передавать аргументы в списке.
+            Decorator_args  ::  any(),
+            %% Информация о декорируемой функции.
+            %% Отличается от erlang:fun_info(Function),
+            %% тем что описывает не Function, а самую первую 
+            %% декорируемую фунцию.
+            Function_info   ::  function_info()
+        ) ->    any().
+
+%% Возвращает функциональный интерфейс.
+-spec   behaviour_info(_) ->
+            undefined | [{parse_transform, 2}|{decorate, 4}, ... ].
+
+%% ==========================================================================
+%% Внутрениие структуры
+%% ==========================================================================
+
+%% ----------------------------------------------------------------
+%% Некоторые абстрактные формы, для удобной работы
+%% ----------------------------------------------------------------
+
+%% @doc     Абстрактная форма конца файла.
+%%
 %% @private
--record(dopts, {
-    module      =   ?MODULE     :: atom(),
-    name        =   decorate    :: atom(),
-    function    =   decorate    :: atom()
+%%
+-record(eof, {
+    line    :: integer()
 }).
 
-
-%% @doc Настройки декораторв
+%% @doc     Абстрактная форма внешней функции.
+%%
 %% @private
--record(dfun, {
-    old_fname   :: atom(),
-    new_fname   :: atom(),
-    arity       :: integer()
+%%
+-record(remote, {
+    line     :: integer(),
+    module   :: atom(),
+    function :: atom()
 }).
 
+%% @doc     Абстрактная форма вызова функции.
+%%
+%% @private
+%%
+-record(call, {
+    line        :: integer(),
+    function    :: erl_parse:abstract_form(),
+    args        :: [erl_parse:abstract_form()]
+}).
+
+%% @doc     Абстрактная форма уравнения.
+%%
+%% @private
+%%
+-record(clause, {
+    line    :: integer(),
+    args    :: [{var,Line::integer(),Arg::atom()}],
+    guards  :: [],
+    body    :: [erl_parse:abstract_form()]
+}).
+
+%% @doc     Абстрактная форма функции.
+%%
+%% @private
+%%
+-record(function, {
+    line    :: integer(),
+    name    :: atom(),
+    arity   :: integer(),
+    clauses :: list(record(clause))
+}).
+
+%% @doc     Абстрактная форма атрибута модуля.
+%%
+%% @private
+%%
+-record(attribute, {
+    line  :: integer(),
+    name  :: atom(),
+    value :: any()
+}).
+
+%% ----------------------------------------------------------------
+%% Внутренние структуры модуля
+%% ----------------------------------------------------------------
+
+%% @doc Состояние преобразования. 
+%%      В структуре хранятся настройки декораторов 
+%%      и некоторые промежуточные результаты.
+%%
+%% @private
+%%
+-record(dstate, {
+    module   = ?MODULE   :: atom(), %% Модуль настоящего декоратора.
+    name     = decorate  :: atom(), %% Имя настоящего декоратора.
+    function = decorate  :: atom(), %% Декорирующая функция.
+    fmod     = undefined :: atom(), %% Модуль декорируемой функции.
+    dlist    = []        :: list(record(attribute)), %% Список декораторов.
+    dargs    = []        :: list(any()),  %% Аргументы декоратора.
+    argnms   = []        :: list(atom()), %% Имена аргументов функций.
+    argabs   = []        :: list(atom()), %% Абстрактные представления функции.
+    dllen    = 0         :: integer(),    %% Длина cписока декораторов.
+    dind     = 0         :: integer()     %% Номер текущего декоратора.
+}).
+
+%% ==========================================================================
+%% Константы и макросы
+%% ==========================================================================
 
 -define(DEBUG, true).
 
@@ -47,7 +192,7 @@
     -ifndef(debug).
         -define(debug(T, F),
             io:format(
-                "~ndebug(~p):~n~80.80c~n" ++ F ++ "~n~80.80c~n",
+                "~ndebug(~p):~n~80.80c~n" ++ T ++ "~n~80.80c~n",
                 [?LINE,$=|F]++[$-]
             )
         ).
@@ -70,45 +215,29 @@
     -endif. % pprint
 -endif. % DEBUG
 
+%% ==========================================================================
+%% Внешние функции
+%% ==========================================================================
 
-
--spec   behaviour_info(_) ->
-            undefined | [{parse_transform, 2} | {decorate, 4}, ... ].
-
--spec   parse_transform(
-            Ast         ::erl_parse:abstract_form(),
-            Options     ::proplists:proplist()
-        ) ->
-            erl_parse:abstract_form().
-
--spec   transform(
-            Ast         ::erl_parse:abstract_form(),
-            Options     ::proplists:proplist()
-        ) ->
-            erl_parse:abstract_form().
-
--spec   decorate(
-            Function        ::  function(),
-            Function_args   ::  [any()],
-            Decorator_args  ::  [any()],
-            Options         ::  proplists:proplist()
-        ) -> fun().
-
-
-%% @doc Возвращает описания OTP-поведения.
-%% 
-%% Описание функционального интерфейса модуля декораторв
+%% @doc     Возвращает описания поведения.
+%%          Описание функционального интерфейса модуля декораторов.
+%%
+%% @spec    behaviour_info(_) ->
+%%              undefined | [{parse_transform, 2}|{decorate, 4}].
 %%
 behaviour_info(callbacks) ->
-    [
-        {parse_transform, 2},
-        {decorate, 4}
-    ];
-
+    [{parse_transform, 2},{decorate, 4}];
 behaviour_info(_) ->
     undefined.
 
-
+%% @doc     Преобразует синтаксическое дерево.
+%%          Интерфейсная функция. Нужна для того, чтобы этот модуль 
+%%          можно было использовать в качестве декоратора.
+%%          Должна быть переопределена в настоящих декораторах.
+%%
+%% @spec    parse_transform(erl_parse:abstract_form(), decorator_options()) ->
+%%              erl_parse:abstract_form().
+%%
 parse_transform(Ast,Options)->
     gen_dec:transform(Ast, [
         {module,   ?MODULE},
@@ -116,298 +245,267 @@ parse_transform(Ast,Options)->
         |Options]
     ).
 
+%% @doc     Декорирует. Функция является частью функционального интерфейса 
+%%          этого модуля. Должна быть определена в настоящих декораторах.
+%%          Оставлена, для отладки, тестирования декораторов и как пример
+%%          определения подобных функций в настоящих декораторах.
+%%          В текущей реализации просто вычисляет декорируемую функцию.
+%%
+%% @spec    decorate(function(),[any()],any(),function_info()) ->
+%%              any().
+%%
+%% @param   Function        function()          декорируемая функция.
+%% @param   Function_args   [any()]             список аргументов функции.
+%% @param   Decorator_args  any()               аргументы декоратора.
+%% @param   Function_info   function_info()     информация об исходной функции.
+%%
 decorate(Function, Fargs, _dargs, _options) ->
     fun()->
         ?debug("Function",          "~p", [Function]),
         ?debug("Function  args",    "~p", [Fargs]),
         ?debug("Decorator args",    "~p", [_dargs]),
         ?debug("Decorator options", "~p", [_options]),
-        erlang:apply(Function, Fargs)
+        erlang:applydecs(Function, Fargs)
     end.
 
 
-
-% TODO: сообщения об ошибках в декораторе
-% parse_transform(Ast,_options)->
-%     parse_transform(Ast, fun transform_node/2, _options).
-
+%% @doc     Преобразует синтаксическое дерево. Эту функцию следует использовать 
+%%          для определения parse_transform/2 в настоящих декораторах.
+%%
+%% @spec    transform(erl_parse:abstract_form(), decorator_options()) ->
+%%              erl_parse:abstract_form().
+%% 
 transform(Ast, Options)->
     ?debug("OLD AST",       "~p",   [Ast]),
-    ?debug("OLD FORMS",    "~s",   [?pprint(Ast)]),
-    Dopts = #dopts{
+    ?debug("OLD FORMS",     "~s",   [?pprint(Ast)]),
+    Dstate = #dstate{
         name        =   proplists:get_value(name,       Options,    decorate),
         module      =   proplists:get_value(module,     Options,    ?MODULE),
         function    =   proplists:get_value(function,   Options,    decorate)
     },
-    
-    {East, Rdecs} = lists:mapfoldl(
-        fun(Item, Acc) ->
-            transform_node(Item, Acc, Dopts)
-        end,
-        [],
-        Ast
-    ),
-    Nast =
-        lists:flatten(
-            lists:filter(fun(Node)-> Node =/= nil end, East)
-        )
-    ++ emit_errors_for_rogue_decorators(Rdecs, Dopts),
+    {East, Rdecs} = lists:mapfoldl(fun ntr/2,Dstate,Ast),
+    Nast = lists:flatten([
+        lists:filter(fun(Node)-> Node =/= nil end, East),
+        %% добавляем в синтаксическое дерево,
+        %% сообщения о пустых декораторах.
+        rogue(Rdecs)
+    ]),
     ?debug("NEW AST",       "~p",   [Nast]),
     ?debug("NEW FORMS",     "~s",   [?pprint(Nast)]),
     Nast.
 
+%% ==========================================================================
+%% Внутрениие функции
+%% ==========================================================================
 
-emit_errors_for_rogue_decorators(Dlist, _dopts)->
-    [   {error,
-            {Line,
-                erl_parse,
-                [   "rogue decorator ",
-                    io_lib:format("~p",[D])
+%% @doc     Возвращает список ошибок о наличии пустых декораторов.
+%%          Это нужно для отлова пустых декораторов. 
+%%          Например, в конце файла.
+%%
+%% @spec    rogue(record(dstate))->
+%%              [{error, {integer(), atom(), [atom(), string()]}}]
+%%
+rogue(#dstate{dlist=Dlist})->
+    [   {error,{Line,erl_parse,[rogue_dec, io_lib:format("~p",[Value])]}}
+        || #attribute{line=Line, value=Value} <- Dlist
+    ].
+
+
+%% @doc     Преобразует узлы уровня модуля возвращает пустой узел (nil),
+%%          единственный узел, или список узлом. Пустые узлы удаляются 
+%%          при следующем проходе и списки спрямляются (flatten).
+%%
+%% @spec    ntr(erl_parse:abstract_form(), record(dstate))->
+%%              {erl_parse:abstract_form(), record(dstate)}
+%%
+ntr(#attribute{name=module, value=Module}=Node, #dstate{}=Dstate) ->
+    %% Выяснем имя модуля для функции, которую декорируем.
+    %% Здесь можно было бы собрать больше информации о модуле,
+    %% но пока это кажется не очень нужным
+    {Node, Dstate#dstate{fmod=Module}};
+
+ntr(#attribute{name=Name}=Node,#dstate{name=Name,dlist=Dlist}=Dstate) ->
+    %% Аккумулируем все декораторы одной функции.
+    {nil, Dstate#dstate{dlist=[Node|Dlist]}};
+
+ntr(#function{}=Node, #dstate{dlist=[]}=Dstate) ->
+    %% Пропускаем функцию без декораторов.
+    {Node, Dstate#dstate{dlist=[]}};
+
+ntr(#function{}=Node, Dstate) ->
+    %% Применяем декораторы.
+    {applydecs(Node, Dstate), Dstate#dstate{dlist=[]}};
+
+ntr(#eof{}=Node, Dstate) ->
+    %% Обрабатываем ошибки.
+    {[Node| rogue(Dstate) ], Dstate#dstate{dlist=[]}};
+
+ntr(Node, Dstate) ->
+    %% Все остальное.
+    {Node, Dstate}.
+
+%% @doc     Применяет декораторы.
+%%          Добавляет в синтаксическое дерево модуля новые функции,
+%%          Заменяет декорируемую функцию на вызов цепочки этих новых функций.
+%%          Концом цепочки является тело старой функции.
+%%
+%% @spec    applydecs(record(function), record(dstate))->
+%%              [erl_parse:abstract_form()]
+%%
+applydecs(#function{arity=Arity,line=Line}=Node,#dstate{dlist=Dlist}=Odstate)
+    when erlang:length(Dlist) > 0 ->
+    %% Все что можем вычислить сейчас, вычисляем,
+    %% чтобы не делать одно и то же несколько раз.
+    Argnames = [to_atom(['Arg', Anum]) || Anum <- lists:seq(1,Arity)],
+    Dstate = Odstate#dstate{
+        dllen   = erlang:length(Dlist),
+        argnms  = Argnames,
+        argabs  = args(Line, Argnames)
+    },
+    [
+        %% Оригинальная функция, но с новым именем.
+        original(Node, Dstate),
+        %% Функия с именем оригинальной функии;
+        %% для вызова цепочки декораторов.
+        trampoline(Node, Dstate)
+        %% Цепочка декораторов, 
+        %% функций каскадно вызывающих декорирующие функии.
+        | dchain(Node,Dstate)
+    ].
+
+%% @doc     Переименовывает оригинальную функцию.
+%%          Эта переименованная функция будет перво в цепочке декораторов.
+%%
+%% @spec    original(record(function), record(dstate))-> record(function)
+%% 
+original(#function{}=Node, _dstate) ->
+    Node#function{name=rfname(Node)}.
+
+%% @doc     Возвращает замену оригинальной функции, 
+%%          переадресовывая вызов на цепь декораторов.
+%%          Количество аркументов не меняется.
+%%          Важно отметить, что от оригинальной функции в новую одноименную функцию
+%%          переходит только имя. Все сопоставления с образцом, 
+%%          и оградительные выражения остаются с переименованной 
+%%          старой функцией.
+%%
+%% @spec    trampoline(record(function), record(dstate))-> record(function)
+%% 
+trampoline(#function{line=Line}=Node, #dstate{dllen=Dllen, argabs=Argabs}) ->
+    Node#function{
+        clauses = [
+            #clause{
+                line    =   Line,
+                args    =   Argabs,
+                guards  =   [],
+                body    =   [
+                    #call{ %% Вызов последнего декоратора в цепи.
+                        line        =   Line,
+                        function    =   {atom, Line, wfname(Node, Dllen)},
+                        args        =   Argabs
+                    }
                 ]
             }
+        ]
+    }.
+
+%% @doc     Возвращает цепочку декораторов для добавления 
+%%          в синтаксическое дерево.
+%%
+%% @spec    dchain(record(function), record(dstate))-> [record(function)]
+%%
+dchain(Node, #dstate{dlist=Dlist, dllen=Dllen}=Dstate) ->
+    Dinds = lists:zip(Dlist, lists:seq(1, Dllen)),
+    [
+        dec(Node,Dstate#dstate{dargs=Dargs,dind=Dind})
+        || { #attribute{value=Dargs},Dind} <- Dinds
+    ].
+
+%% @doc     Возвращает один декоратор.
+%%          Количество аркументов декоратора и исходной функции совпадает.
+%%
+%% @spec    dec(record(function), record(dstate))-> record(function)
+%%
+dec(#function{line=Line}=Node,#dstate{dind=Dind,argabs=Argabs}=Dstate) ->
+    Node#function{
+        name    =   wfname(Node, Dind),
+        clauses =   [
+            #clause{
+                line   = Line,
+                args   = Argabs,
+                guards = [],
+                body   = [dbody(Node, Dstate)]
+            }
+        ]
+    }.
+
+%% @doc     Возвращает тело декоратора. А именно, вызов декорирующей функции. 
+%%          Важно отметить, что сам по себе декоратор, как в python,
+%%          Возвращает функцию, а не значение. Эта функция передается дальше
+%%          другим декораторам. Здесь, нам это делать не обязательно,
+%%          так как согласно построению, мы в любом случаю, передадим такую
+%%          функию (ответсвенность за это берет сам декоратор, которуму
+%%          мы должны эту функцию передать). Потому здесь,
+%%          при вызове декоратора возвращается значение декорирующей функции.
+%%          Помимо всего прочего, это позволяет, сэкономить один вызов.
+%%
+%% @spec    dec(record(function), record(dstate))-> record(сall)
+%%
+dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
+        #dstate{
+            function = Function,
+            module   = Module,
+            dargs    = Dargs,
+            fmod     = Fmod,
+            dind     = Dind,
+            argnms   = Argnames
         }
-        || {attribute, Line, _, D} <- Dlist
-    ].
-
-%
-% преобразует узлы уровня модуля
-% см http://www.erlang.org/doc/apps/erts/absform.html
-% возвращает пустой узел (nil),
-% единственный узел, или список узлом.
-% пустые узлы удаляются при следующем проходе и списки спрямляются (flatten).
-%
-transform_node(Node={attribute, _Line, Name, _Decorator}, Dlist, #dopts{name=Name}) ->
-    % Аккумулируем все декораторы одной функции
-    {nil, [Node|Dlist]};
-transform_node(Node={function, _Line, _Fname, _Arity, _Clauses}, [], _dopts) ->
-    % Пропускаем функцию без декораторов
-    {Node, []};
-transform_node(Node={function, _Line, _Fname, _Arity, _Clauses}, Dlist, Dopts) ->
-    % Декорируем
-    {apply_decorators(Node,Dlist, Dopts), []};
-    
-transform_node(Node={eof,_Line}, Dlist, Dopts) ->
-    {[Node| emit_errors_for_rogue_decorators(Dlist, Dopts) ], []};
-    
-transform_node(Node, Dlist, _dopts) ->
-    % Все остальное
-    {Node, Dlist}.
-
-%%
-%% @doc применяет декораторы
-%%
-apply_decorators(Node={function, Line, Fname, Arity, _Clauses}, Dlist, Dopts) when erlang:length(Dlist) > 0 ->
-    Dfun = #dfun{old_fname=Fname, arity=Arity},
-    [
-        % Оригинальная, переименованная функция
-        function_form_original(Node, Dopts),
-        % Замена оригинальной функции на нашу цепочку декораторов
-        function_form_trampoline(Line, Dfun, Dlist, Dopts),
-        % Функция funname_arityn_0 
-        % для преобразования входных параметров 
-        % в единый список
-        function_form_unpacker(Line,Dfun,Dopts)
-        % Цепочка декораторов
-        | function_forms_decorator_chain(Line, Dfun, Dlist,Dopts)
-    ].
-
-
-function_form_original({function, Line, Fname, Arity, Clauses}, _dopts) ->
-    {function, Line, generated_func_name({original,Fname}), Arity, Clauses}.
-
-
-% возвращает замену оригинальной функции, 
-% переадресовывая вызов на цепь декораторов,
-% заменяя входные аргументы на их список
-function_form_trampoline(Line, #dfun{old_fname=Fname, arity=Arity}, Dlist, _dopts) ->
-    Dnb = erlang:length(Dlist),
-    Arg_names = arg_names(Arity),
-    { function, Line, Fname, Arity,
-        [{  clause,
-            Line,
-            emit_arguments(Line, Arg_names),
-            emit_guards(Line, []),
-            [
-                emit_local_call( Line,
-                    generated_func_name(
-                        {decorator_wrapper, Fname, Arity, Dnb}
-                    ),
-                    emit_arguments(Line,Arg_names)
-                )
-            ]
-        }]
-    }.
-
-% Функция обратная предыдущей,
-% на вход получает список аргументов
-% и вызывает оригинальную функцию
-function_form_unpacker(Line,#dfun{old_fname=Fname, arity=Arity}, _dopts) ->
-    Arg_names = arg_names(Arity),
-    Ofun = generated_func_name({original,Fname}),
-    {   function,
-        Line,
-        generated_func_name({decorator_wrapper, Fname, Arity, 0}),
-        Arity,
-        [{  clause,
-            Line,
-            %[emit_atom_list(Line, Arg_names)],
-            emit_arguments(Line, arg_names(Arity)),
-            emit_guards(Line, []),
-            [{  call,
-                Line,
-                {atom,Line,Ofun},
-                emit_arguments(Line,Arg_names)
-            }]
-        }]
-    }.
-
-function_forms_decorator_chain(Line, Dfun, Dlist, Dopts) ->
-    Dnb = erlang:length(Dlist),
-    Dindexes = lists:zip(Dlist, lists:seq(1, Dnb)),
-    [
-        function_form_decorator_chain(Line,Dfun,Dmf,Dindex, Dopts)
-        || { {attribute,_,_,Dmf},Dindex} <- Dindexes
-    ].
-
-function_form_decorator_chain(
-        Line,
-        #dfun{old_fname=Fname, arity=Arity} = Dfun,
-        Dmf,
-        Dindex,
-        Dopts
     ) ->
-    Nfname = generated_func_name({decorator_wrapper, Fname, Arity, Dindex-1}),
-    Ffun = 'F',
-    {   function,
-        Line,
-        generated_func_name({decorator_wrapper, Fname,Arity, Dindex}), % name
-        Arity,
-        [{  clause,
-            Line,
-            emit_arguments(Line, arg_names(Arity) ),
-            emit_guards(Line, []),
-            [
-                emit_decorated_fun(
-                    Line,
-                    Ffun,
-                    Dfun#dfun{new_fname=Nfname},
-                    Dmf,
-                    Dopts
-                ),
-                {call, Line,{var,Line,Ffun},[]}
-            ]
-        }]
-    }.
-
-emit_decorated_fun_worker(
-        Line,
-        Name,
-        #dfun{
-            arity=Arity,
-            old_fname=Ofname,
-            new_fname=Nfname
+    #call{
+        line=Line,
+        function= #remote{
+            line     = Line,
+            module   = {atom,Line,Module},
+            function = {atom,Line,Function}
         },
-        Module,
-        Function,
-        Eargs,
-        _dopts
-    )
-    when erlang:is_atom(Module), erlang:is_atom(Function)->
-    {match,Line,
-        {var,Line,Name},
-        {call,
-            Line,
-            {   remote,
-                Line,
-                {atom,Line,Module},
-                {atom,Line,Function}
-            },
-            [
-                {'fun',Line,{function, Nfname, Arity}},
-                emit_atom_list(Line, arg_names(Arity)),
-                emit_values(Line, Eargs),
-                emit_values(Line, [{fname, Ofname},{line, Line}])
-            ]
-        }
+        args=[
+            %% Декорируемая функция
+            {'fun',Line,{function, wfname(Node, Dind-1), Arity}},
+            %% Аргументы Функции
+            arglist(Line, Argnames),
+            %% Аргументы декоратора
+            vals(Line, Dargs),
+            %% Дополнительная информация
+            %% о декорируемой функции.
+            vals(Line, [
+                %% значение арности, нам уже изветсно,
+                %% повторно вычислять не придется,
+                %% если понадобится
+                {arity,     Arity},
+                {function,  Ofname},
+                {module,    Fmod},
+                {line,      Line}
+            ])
+        ]
     }.
 
+%% @doc     Возвращет абстрактное представление аргументов функции 
+%%          на основе их списка. Сами аргументы задаются атомов вида 'Arg'
 %%
+%% @spec    args(integer(), list(atom()))-> 
+%%              list({var,integer(),atom()}::erl_parse:abstract_form).
 %%
-%%
-emit_decorated_fun(
-        Line,
-        Name,
-        Dfun,
-        {Module, Function},
-        Dopts
-    ) when erlang:is_atom(Module), erlang:is_atom(Function) ->
-    emit_decorated_fun_worker(
-        Line,
-        Name,
-        Dfun,
-        Module,
-        Function,
-        [],
-        Dopts
-    );
-
-%%
-%%
-%%
-emit_decorated_fun(
-        Line,
-        Name,
-        Dfun,
-        {Module,Function,Eargs},
-        Dopts
-    ) when erlang:is_atom(Module), erlang:is_atom(Function) ->
-    emit_decorated_fun_worker(
-        Line,
-        Name,
-        Dfun,
-        Module,
-        Function,
-        Eargs,
-        Dopts
-    );
-
-emit_decorated_fun(
-        Line,
-        Name,
-        Dfun,
-        Eargs,
-        #dopts{
-            function    =   Function,
-            module      =   Module
-        } = Dopts
-    )  ->
-    emit_decorated_fun_worker(
-        Line,
-        Name,
-        Dfun,
-        Module,
-        Function,
-        Eargs,
-        Dopts
-    ).
-
-emit_local_call(Line, Fname, List) ->
-    {call, Line, {atom, Line, Fname}, List}.
-
-emit_arguments(Line, List) ->
+args(Line, List) ->
     [{var,Line,Arg} || Arg <- List].
 
-emit_values(Line,List) ->
-    erl_parse:abstract(List, Line).
-
-
-emit_guards(_Line, [])->
-    [];
-
-emit_guards(_,_)->
-    throw(nyi).
-
-emit_atom_list(Line, List) ->
+%% @doc     Возвращет абстрактное представление списка аргументов функции
+%%          на основе их списка. Сами аргументы задаются атомов вида 'Arg'
+%%          В отличие от предыдущей функции конструируется правильный список.
+%%
+%% @spec    args(integer(), list(atom()))->
+%%              erl_parse:abstract_form.
+%%
+arglist(Line, List) ->
     lists:foldr(
         fun(Arg, Acc) ->
             {cons, Line, {var, Line, Arg}, Acc}
@@ -416,28 +514,54 @@ emit_atom_list(Line, List) ->
         List
     ).
 
-generated_func_name( {original, Oname} ) ->
-    atom_name(["<", Oname, ".o>"]);
-generated_func_name( {trampoline, Oname} ) ->
-    Oname;
-generated_func_name( {decorator_wrapper, Oname, Arity, N} ) ->
-    atom_name(["<", Oname, ".a{", Arity, "},v{", N, "}>"]).
+%% @doc     Возвращет абстрактное представление списка значений.
+%%          Нужна для подстановки в явном виде аргументов декоратора.
+%%
+%% @spec    vals(integer(), list(atom()))->
+%%              erl_parse:abstract_form.
+%%
+vals(Line,List) ->
+    erl_parse:abstract(List, Line).
 
-% list() -> atom()
-atom_name(Elements) ->
-    list_to_atom(lists:flatten(lists:map(
-        fun
-            (A) when is_atom(A) ->
-                erlang:atom_to_list(A);
-            (A) when is_integer(A) ->
-                erlang:integer_to_list(A);
-            (A) when is_binary(A) ->
-                erlang:binary_to_list(A);
-            (A) when is_list(A) ->
-                io_lib:format("~s",[A])
-        end,
-        Elements
-    ))).
- 
-arg_names(Arity) ->
-    [ atom_name(["Arg", Anum]) || Anum <- lists:seq(1,Arity)].
+%% @doc     Возвращет новое имя для переданной исходной функции.
+%%          Эта функция будет перво в цепочке декораторов.
+%%
+%% @spec    rfname(record(function))-> atom().
+%%
+rfname(#function{name=Name, arity=Arity}) ->
+    to_atom(['<', Name, '/', Arity, '-dec-0>']).
+
+%% @doc     Возвращет имя для функции из цепочки декораторов.
+%%          Number --- номер декоратора в цепочке.
+%%
+%% @spec    wfname(record(function), integer())-> atom().
+%%
+wfname(#function{name=Name, arity=Arity}, Number) ->
+    to_atom(['<', Name, '/', Arity, '-dec-', Number, '>']).
+
+
+%% @doc     Собирает атом, из переданного списка термов.
+%%          Не самая эффективная реализация, 
+%%          но быстрее чем предыдущие варианты.
+%%
+%% @spec    to_atom(list(any()))-> atom()
+%%
+to_atom(Elements) ->
+    erlang:binary_to_atom(
+        erlang:list_to_binary(
+            lists:map(
+                fun
+                    (A) when is_atom(A) ->
+                        erlang:atom_to_list(A);
+                    (A) when is_integer(A) ->
+                        erlang:integer_to_list(A);
+                    (A) when is_binary(A) ->
+                        erlang:binary_to_list(A);
+                    (A) when is_list(A) ->
+                        io_lib:format("~s",[A])
+                end,
+                Elements
+            )
+        ),
+        utf8
+    ).

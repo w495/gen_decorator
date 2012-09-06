@@ -13,14 +13,6 @@ parse_transform(Ast,Options)->
         |Options]
     ).
 
-decorate(Function, Fargs, [Arg1], _options) ->
-    fun()->
-        R = erlang:apply(Function, Fargs),
-        R*Arg1
-    end;
-
-decorate(Function, Fargs, [Arg1,   Arg2], _options) ->
-    fun()->
-        R = erlang:apply(Function, Fargs),
-        R*Arg1+Arg2
-    end.
+decorate(Function, Fargs, A, _info) ->
+    10 * erlang:apply(Function, Fargs) + A.
+    
