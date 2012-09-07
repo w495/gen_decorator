@@ -7,7 +7,7 @@
 %%          
 %%          ЗАЧЕМ:
 %%          Например описан следующий модуль:
-%%              
+%%          <code>
 %%              -module(some_mod).
 %%              -compile([{parse_transform, dec_mtenandadd}]).
 %%              -compile([{parse_transform, dec_log}]).
@@ -19,7 +19,7 @@
 %%              -log([]).
 %%              identity(A) when is_integer(A)->
 %%                   A.
-%%              
+%%          </code>    
 %%          При выполнении функции some_mod:identity/1 сначала применятся 
 %%          все сразу дектораторы mtenandadd, и только потом все сразу
 %%          дектораторы log. В итоге, это не совсем то, что ожидается
@@ -33,7 +33,7 @@
 %%          запутывает. Чтобы решить проблему, нужно применять декораторы, 
 %%          в одной parse_transform. Для этого и был создан текущей модуль.
 %%          При использовании его, получаем:
-%%              
+%%          <code>  
 %%              -module(some_mod).
 %%              -compile([{parse_transform, decorator}]).
 %%              
@@ -44,7 +44,7 @@
 %%              -dec(dec_log).
 %%              identity(A) when is_integer(A)->
 %%                  A.
-%%              
+%%          </code>
 %%          Переписывать модули декораторов dec_mtenandadd и dec_log
 %%          не придется, разве что, дать им более короткие имена.
 %%          При трансформации, аттрибут -dec(...) развертывается 
@@ -55,7 +55,7 @@
 %%          субдекораторами. 
 %%          Код после его причесывания, и переименования модулей субдекораторов
 %%          имеет вид:
-%%              
+%%          <code>  
 %%              -module(some_mod).
 %%              -compile([{parse_transform, decorator}]).
 %%              
@@ -66,7 +66,8 @@
 %%              -dec(log).
 %%              identity(A) when is_integer(A)->
 %%                   A.
-%%              
+%%          </code>
+%%
 -module(decorator).
 
 %% Удовлетворяем требованиям gen_decorator,
