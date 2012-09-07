@@ -1,4 +1,5 @@
-erlang_decorators
-=================
+# Что это?
 
-This code implenets decorators for erlang.
+Реализация декораторов на erlang с помощью parse_transform.
+
+
