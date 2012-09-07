@@ -8,17 +8,17 @@
 %%          ЗАЧЕМ:
 %%          Например описан следующий модуль:
 %%              
-%%              01|-module(some_mod).
-%%              02|-compile([{parse_transform, dec_mtenandadd}]).
-%%              03|-compile([{parse_transform, dec_log}]).
-%%              04|
-%%              05|-log([]).
-%%              06|-mtenandadd(3).
-%%              07|-mtenandadd(2).
-%%              08|-mtenandadd(1).
-%%              09|-log([]).
-%%              10|identity(A) when is_integer(A)->
-%%              11|     A.
+%%              -module(some_mod).
+%%              -compile([{parse_transform, dec_mtenandadd}]).
+%%              -compile([{parse_transform, dec_log}]).
+%%              
+%%              -log([]).
+%%              -mtenandadd(3).
+%%              -mtenandadd(2).
+%%              -mtenandadd(1).
+%%              -log([]).
+%%              identity(A) when is_integer(A)->
+%%                   A.
 %%              
 %%          При выполнении функции some_mod:identity/1 сначала применятся 
 %%          все сразу дектораторы mtenandadd, и только потом все сразу
@@ -34,17 +34,16 @@
 %%          в одной parse_transform. Для этого и был создан текущей модуль.
 %%          При использовании его, получаем:
 %%              
-%%              01|-module(some_mod).
-%%              02|-compile([{parse_transform, decorator}]).
-%%              03|
-%%              04|
-%%              05|-dec(dec_log).
-%%              06|-dec({dec_mtenandadd, [3]}).
-%%              07|-dec({dec_mtenandadd, [2]}).
-%%              08|-dec({dec_mtenandadd, [1]}).
-%%              09|-dec(dec_log).
-%%              10|identity(A) when is_integer(A)->
-%%              11|     A.
+%%              -module(some_mod).
+%%              -compile([{parse_transform, decorator}]).
+%%              
+%%              -dec(dec_log).
+%%              -dec({dec_mtenandadd, [3]}).
+%%              -dec({dec_mtenandadd, [2]}).
+%%              -dec({dec_mtenandadd, [1]}).
+%%              -dec(dec_log).
+%%              identity(A) when is_integer(A)->
+%%                  A.
 %%              
 %%          Переписывать модули декораторов dec_mtenandadd и dec_log
 %%          не придется, разве что, дать им более короткие имена.
@@ -57,16 +56,16 @@
 %%          Код после его причесывания, и переименования модулей субдекораторов
 %%          имеет вид:
 %%              
-%%              01|-module(some_mod).
-%%              02|-compile([{parse_transform, decorator}]).
-%%              03|
-%%              04|-dec(log).
-%%              05|-dec({mtenandadd, 3}).
-%%              06|-dec({mtenandadd, 2}).
-%%              07|-dec({mtenandadd, 1}).
-%%              08|-dec(log).
-%%              09|identity(A) when is_integer(A)->
-%%              10|     A.
+%%              -module(some_mod).
+%%              -compile([{parse_transform, decorator}]).
+%%              
+%%              -dec(log).
+%%              -dec({mtenandadd, 3}).
+%%              -dec({mtenandadd, 2}).
+%%              -dec({mtenandadd, 1}).
+%%              -dec(log).
+%%              identity(A) when is_integer(A)->
+%%                   A.
 %%              
 -module(decorator).
 
