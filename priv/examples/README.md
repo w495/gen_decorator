@@ -1,4 +1,6 @@
-erlang_decorators
-=================
+# Что это?
 
-This code implenets decorators for erlang.
+Пример применения декораторов в erlang.
+
+
+
