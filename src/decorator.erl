@@ -1,24 +1,25 @@
 %%
 %% @file    decorator.erl
 %%          Реализация настоящего декоратора на основе gen_decorator.
-%%          Этот декоратор делегирует декорирование другим 
-%%          модулям (субдекораторам), которые передаются 
-%%          как аргументы декоратора.
+%%          Этот декоратор делегирует декорирование другим  модулям 
+%%          (субдекораторам), которые передаются как аргументы декоратора. 
+%%          (Для создания субдекоратора достаточно определить функцию
+%%          decorate/4 в теле модуля субдекоратора.
 %%          
-%%          ЗАЧЕМ:
-%%          Например описан следующий модуль:
+%%      Зачем:
+%%          Например, описан следующий модуль:
 %%          <code>
 %%              -module(some_mod).
 %%              -compile([{parse_transform, dec_mtenandadd}]).
 %%              -compile([{parse_transform, dec_log}]).
-%%              
+%%              -export([identity/1]}.
+%%
 %%              -log([]).
 %%              -mtenandadd(3).
 %%              -mtenandadd(2).
 %%              -mtenandadd(1).
 %%              -log([]).
-%%              identity(A) when is_integer(A)->
-%%                   A.
+%%              identity(A) -> A.
 %%          </code>    
 %%          При выполнении функции some_mod:identity/1 сначала применятся 
 %%          все сразу дектораторы mtenandadd, и только потом все сразу
@@ -36,14 +37,14 @@
 %%          <code>  
 %%              -module(some_mod).
 %%              -compile([{parse_transform, decorator}]).
-%%              
+%%              -export([identity/1]}.
+%%
 %%              -dec(dec_log).
 %%              -dec({dec_mtenandadd, [3]}).
 %%              -dec({dec_mtenandadd, [2]}).
 %%              -dec({dec_mtenandadd, [1]}).
 %%              -dec(dec_log).
-%%              identity(A) when is_integer(A)->
-%%                  A.
+%%              identity(A) -> A.
 %%          </code>
 %%          Переписывать модули декораторов dec_mtenandadd и dec_log
 %%          не придется, разве что, дать им более короткие имена.
@@ -58,14 +59,14 @@
 %%          <code>  
 %%              -module(some_mod).
 %%              -compile([{parse_transform, decorator}]).
-%%              
+%%              -export([identity/1]}.
+%%
 %%              -dec(log).
 %%              -dec({mtenandadd, 3}).
 %%              -dec({mtenandadd, 2}).
 %%              -dec({mtenandadd, 1}).
 %%              -dec(log).
-%%              identity(A) when is_integer(A)->
-%%                   A.
+%%              identity(A) -> A.
 %%          </code>
 %%
 -module(decorator).
@@ -158,8 +159,10 @@ behaviour_info(_) ->
 %%          -compile([{parse_transform, ...}]). 
 %%          Интерфейсная функция gen_decorator. 
 %%
-%% @spec    parse_transform(erl_parse:abstract_form(), gen_decorator:decorator_options()) ->
-%%              erl_parse:abstract_form().
+%% @spec    parse_transform(
+%%              erl_parse:abstract_form(), 
+%%              list(compile:options())
+%%          ) -> erl_parse:abstract_form().
 %%
 parse_transform(Ast, _options)->
     gen_decorator:transform(Ast, [
@@ -176,10 +179,15 @@ parse_transform(Ast, _options)->
 %% @spec    decorate(function(),[any()],subdecorator(),function_info()) ->
 %%              any().
 %%
-%% @param   Function        function()          декорируемая функция.
-%% @param   Function_args   [any()]             список аргументов функции.
-%% @param   Subdecorator    subdecorator()      аргументы декоратора.
-%% @param   Function_info   function_info()     информация об исходной функции.
+%% @param   Function        function()          
+%%              декорируемая функция.
+%% @param   Function_args   [any()]             
+%%              список аргументов функции.
+%% @param   Subdecorator    subdecorator()      
+%%              субдекоратор (модуль или модуль с аргументом), 
+%%              которому делегируют декорирование исходной функции.
+%% @param   Function_info   function_info()     
+%%              информация об исходной функции.
 %%
 decorate(Function, Fargs, {Decorator, Darg}, Options)
     when erlang:is_atom(Decorator) ->

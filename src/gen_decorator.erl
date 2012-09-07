@@ -1,8 +1,42 @@
 %%
 %% @file    gen_decorator.erl   
 %%          Реализация обощенного декоратора (generic decorator).
-%%          Для создания декоратора необходимо
+%%          Для создания декоратора необходимо в модуле декоратора
+%%          определить функции parse_transform/2 и decorate/4.
+%%          
+%%          Например, декоратор журналирования можно описать так:
+%%          <code>
+%%              -module(dec_log).
+%%              -behaviour(gen_decorator).
+%%              -export([parse_transform/2, decorate/4]).
+%%              
+%%              parse_transform(Ast,Options)->
+%%                  gen_decorator:transform(Ast,[{module,?MODULE},{name,log}]).
+%% 
+%%              decorate(Function, Fargs, [], Info) ->
+%%                  Res = erlang:apply(Function, Fargs),
+%%                  io:format("fun = ~p, res = ~p~n", [Info, Res]),
+%%                  Res;
+%%              decorate(Function, Fargs, Comment, Info) ->
+%%                  Res = erlang:apply(Function, Fargs),
+%%                  io:format(
+%%                      "fun = ~p, res = ~p comment = ~p ~n", 
+%%                      [Info, Res, Comment]
+%%                  ),
+%%                  Res.
+%%          </code>
+%%          Ниже пример использования такого декоратора.
+%%          <code>
+%%              -module(some_mod).
+%%              -compile([{parse_transform, dec_log}]).
+%%              -export([identity/1, tuplize/3]}.
 %%
+%%              -log([]).
+%%              identity(A) -> A.
+%%              
+%%              -log(some_comment).
+%%              tuplize(A, B, C) -> {A, B, C}.
+%%          </code>
 %% 
 -module(gen_decorator).
 
@@ -241,8 +275,10 @@ behaviour_info(_) ->
 %%          с помощью атрибута модуля -compile([{parse_transform, ...}]). 
 %%          Должна быть переопределена в настоящих декораторах.
 %%
-%% @spec    parse_transform(erl_parse:abstract_form(), decorator_options()) ->
-%%              erl_parse:abstract_form().
+%% @spec    parse_transform(
+%%              erl_parse:abstract_form(), 
+%%              list(compile:options())
+%%          ) -> erl_parse:abstract_form().
 %%
 parse_transform(Ast,_options)->
     gen_dec:transform(Ast, [
@@ -489,7 +525,7 @@ dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
                 %% повторно вычислять не придется,
                 %% если понадобится
                 {arity,     Arity},
-                {name,      pfname(Ofname, Dstate)},
+                {name,      Ofname},
                 {module,    Fmod},
                 {line,      Line}
             ])
@@ -547,24 +583,6 @@ rfname(#function{name=Ofname, arity=Arity}, #dstate{name=Dname}) ->
 wfname(#function{name=Ofname, arity=Arity}, #dstate{name=Dname}, Number) ->
     to_atom(['<', Ofname, '/', Arity, '-dec-', Dname, '-', Number, '>']).
 
-
-%% @doc     Из имени декорированной функции выделяет имя исходной функции. 
-%%          Если функция была декорирована несколько раз, разными декораторами,
-%%          то ее имя в верхних (последних) декораторах теряется.
-%%          Это не удивительно, потому что разныые parse_transform не 
-%%          знают друг о друге. pfname/1 решает эту проблему.
-%%
-%% @spec    pfname(atom(), record(dstate))-> atom().
-%%
-pfname(Ofname, _Dstate)->
-    erlang:list_to_atom(
-        re:replace(
-            erlang:atom_to_list(Ofname),
-            "(<)+||(/\\d-dec-.+-\\d>)+", [],
-            [{return, list}, global]
-        )
-    ).
-
 %% @doc     Собирает атом, из переданного списка термов.
 %%          Не самая эффективная реализация, 
 %%          но быстрее чем предыдущие варианты.
@@ -591,3 +609,25 @@ to_atom(Elements) ->
         utf8
     ).
 
+% При текущей последовательности функций в цепи декораторов 
+% (определена в applydecs/2), надобность в этой функции отпала.
+% Но она может пригодится во время эксплуатации модуля.
+% 
+% %% @doc     Из имени декорированной функции выделяет имя исходной функции. 
+% %%          Если функция была декорирована несколько раз, разными декораторами,
+% %%          то ее имя в верхних (последних) декораторах теряется.
+% %%          Это не удивительно, потому что разныые parse_transform не 
+% %%          знают друг о друге. pfname/1 решает эту проблему.
+% %%
+% %% @spec    pfname(atom(), record(dstate))-> atom().
+% %%
+% pfname(Ofname, _Dstate)->
+%     erlang:list_to_atom(
+%         re:replace(
+%             erlang:atom_to_list(Ofname),
+%             "(<)+||(/\\d-dec-.+-\\d>)+", [],
+%             [{return, list}, global]
+%         )
+%     ).
+% 
+%
