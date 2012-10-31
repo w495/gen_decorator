@@ -1,6 +1,6 @@
 {application, gen_decorator_examples, [
     {description, ""},
-    {vsn, "0.1"},
+    {vsn, "0.2"},
     {registered, []},
     {applications, [
         kernel,
