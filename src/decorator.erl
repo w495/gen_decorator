@@ -39,20 +39,20 @@
 %%              -compile([{parse_transform, decorator}]).
 %%              -export([identity/1]}.
 %%
-%%              -dec(dec_log).
-%%              -dec({dec_mtenandadd, [3]}).
-%%              -dec({dec_mtenandadd, [2]}).
-%%              -dec({dec_mtenandadd, [1]}).
-%%              -dec(dec_log).
+%%              -decorator(dec_log).
+%%              -decorator({dec_mtenandadd, [3]}).
+%%              -decorator({dec_mtenandadd, [2]}).
+%%              -decorator({dec_mtenandadd, [1]}).
+%%              -decorator(dec_log).
 %%              identity(A) -> A.
 %%          </code>
 %%          Переписывать модули декораторов dec_mtenandadd и dec_log
 %%          не придется, разве что, дать им более короткие имена.
-%%          При трансформации, аттрибут -dec(...) развертывается 
+%%          При трансформации, аттрибут -decorator(...) развертывается
 %%          в цепочку функций, последняя из которых вызывает
 %%          decorate/4 текущего модуля. А она в свою очередь
 %%          вызывает decorate/4 модулей, переданных в качестве аргументов 
-%%          -dec(...). Для краткости, эти модули мы стали называть 
+%%          -decorator(...). Для краткости, эти модули мы стали называть
 %%          субдекораторами. 
 %%          Код после его причесывания, и переименования модулей субдекораторов
 %%          имеет вид:
@@ -61,11 +61,11 @@
 %%              -compile([{parse_transform, decorator}]).
 %%              -export([identity/1]}.
 %%
-%%              -dec(log).
-%%              -dec({mtenandadd, 3}).
-%%              -dec({mtenandadd, 2}).
-%%              -dec({mtenandadd, 1}).
-%%              -dec(log).
+%%              -decorator(log).
+%%              -decorator({mtenandadd, 3}).
+%%              -decorator({mtenandadd, 2}).
+%%              -decorator({mtenandadd, 1}).
+%%              -decorator(log).
 %%              identity(A) -> A.
 %%          </code>
 %%
@@ -73,18 +73,15 @@
 
 %% Удовлетворяем требованиям gen_decorator,
 %% a именно, определяем parse_transform/2, decorate/4.
-%% Но сам атрибут behaviour не ставим, потому что rebar собирает этот модуль
-%% до сборки gen_decorator, и выдает предупреждение.
-%% %-behaviour(gen_decorator).
+%% Обратите внимание, что при переименовании модуля,
+%% порядок сборки у rebar может измениться. 
+%% gen_decorator должен быть собран ДО текущего модуля.
+%-behaviour(gen_decorator).
+
 
 %% ==========================================================================
 %% Экспортируемые функции
 %% ==========================================================================
-
--export([
-    %% Возвращает функциональный интерфейс.
-    behaviour_info/1
-]).
 
 -export([
     %% Преобразует синтаксическое дерево. 
@@ -109,10 +106,6 @@
 -type subdecorator() :: 
     Module::atom()|{Module::atom(), Arg::any()}.
 
-%% Возвращает функциональный интерфейс.
--spec   behaviour_info(_) ->
-            undefined | [{decorate, 4}].
-
 %% Преобразует синтаксическое дерево.
 %% Интерфейсная функция
 %% Псевдоним для transform/2.
@@ -130,7 +123,7 @@
             %% 
             %% 
             %% 
-            Subdecorator    ::  subdecorator(),
+            Subdecorator    ::  subdecorator()|[subdecorator()],
             %% Информация о декорируемой функции.
             %% Отличается от erlang:fun_info(Function),
             %% тем что описывает не Function, а самую первую
@@ -141,17 +134,6 @@
 %% ==========================================================================
 %% Внешние функции
 %% ==========================================================================
-
-%% @doc     Возвращает описания поведения.
-%%          Описание функционального интерфейса модуля декораторов.
-%%
-%% @spec    behaviour_info(_) ->
-%%              undefined | [{parse_transform, 2}|{decorate, 4}].
-%%
-behaviour_info(callbacks) ->
-    [{decorate, 4}];
-behaviour_info(_) ->
-    undefined.
 
 %% @doc     Преобразует синтаксическое дерево. 
 %%          Нужна для того, чтобы этот модуль можно было использовать 
@@ -164,10 +146,18 @@ behaviour_info(_) ->
 %%              list(compile:options())
 %%          ) -> erl_parse:abstract_form().
 %%
+
+% -decorator({
+%     cache, 200, 12
+% }).
+% -decorator({log}).
+% -decorator(cache).
+% -decorator([{log,   []}]).
+
 parse_transform(Ast, _options)->
     gen_decorator:transform(Ast, [
         {module,   ?MODULE},
-        {name,     ?MODULE}
+        {name,     decorator}
     ]).
 
 %% @doc     Декорирует. Делегирует декорирование модулям переданным 
@@ -176,23 +166,50 @@ parse_transform(Ast, _options)->
 %%          в рамках одного преобразования parse_transform.
 %%          Интерфейсная функция gen_decorator. 
 %%
-%% @spec    decorate(function(),[any()],subdecorator(),function_info()) ->
+%% @spec    decorate(
+%%              function(),
+%%              [any()],
+%%              subdecorator()|[subdecorator()],
+%%              function_info()
+%%          ) ->
 %%              any().
 %%
 %% @param   Function        function()          
 %%              декорируемая функция.
 %% @param   Function_args   [any()]             
 %%              список аргументов функции.
-%% @param   Subdecorator    subdecorator()      
+%% @param   Subdecorator    subdecorator()|[subdecorator()]
 %%              субдекоратор (модуль или модуль с аргументом), 
-%%              которому делегируют декорирование исходной функции.
+%%              которому делегируют декорирование исходной функции,
+%%              таких модулей может быть несколько
 %% @param   Function_info   function_info()     
 %%              информация об исходной функции.
 %%
-decorate(Function, Fargs, {Decorator, Darg}, Options)
-    when erlang:is_atom(Decorator) ->
-    erlang:apply(Decorator, decorate, [Function, Fargs, Darg, Options]);
-decorate(Function, Fargs, Decorator, Options)
-    when erlang:is_atom(Decorator)->
-    erlang:apply(Decorator, decorate, [Function, Fargs, [], Options]).
+decorate(Function, Fargs, {Subdecorator, Darg}, Options)
+    when erlang:is_atom(Subdecorator) ->
+    erlang:apply(Subdecorator, decorate, [Function, Fargs, Darg, Options]);
 
+decorate(Function, Fargs, {Subdecorator}, Options)
+    when erlang:is_atom(Subdecorator)->
+    decorate(Function, Fargs, Subdecorator, Options);
+
+decorate(Function, Fargs, Subdecorator, Options)
+    when erlang:is_atom(Subdecorator)->
+    erlang:apply(Subdecorator, decorate, [Function, Fargs, [], Options]);
+
+decorate(Function, Fargs, Subdecorators, Options)
+    when erlang:is_list(Subdecorators)->
+    lists:foldr(
+        fun
+            ({Subdecorator, Darg}, Fun) ->
+                erlang:apply(
+                    Subdecorator, decorate, [Fun, Fargs, Darg, Options]
+                );
+            (Subdecorator, Fun)->
+                erlang:apply(
+                    Subdecorator, decorate, [Fun, Fargs, [], Options]
+                )
+        end,
+        Function,
+        Subdecorators
+    ).

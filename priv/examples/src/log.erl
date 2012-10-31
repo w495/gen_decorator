@@ -1,5 +1,5 @@
--module(dec_log).
--behaviour(decorator).
+-module(log).
+-behaviour(gen_subdecorator).
 
 -export([
     decorate/4
@@ -22,5 +22,8 @@ decorate(Function, Fargs, [], Info) ->
             )
         )
     end),
-    Res.
+    fun()->
+        Res
+    end.
+    
     

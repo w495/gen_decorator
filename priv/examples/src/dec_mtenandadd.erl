@@ -15,5 +15,6 @@ parse_transform(Ast,Options)->
     ).
 
 decorate(Function, Fargs, [A], _info) ->
-    10 * erlang:apply(Function, Fargs) + A.
-    
+    fun()->
+        10 * erlang:apply(Function, Fargs) + A
+    end.

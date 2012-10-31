@@ -147,6 +147,53 @@
     line    :: integer()
 }).
 
+%% @doc     Абстрактная форма атома.
+%%
+%% @private
+%%
+-record(atom, {
+    line    :: integer(),
+    name    :: term()
+}).
+
+
+%% @doc     Абстрактная форма атома.
+%%
+%% @private
+%%
+
+-record(nil, {
+    line     :: integer()
+}).
+
+
+-record(cons, {
+    line     :: integer(),
+    value    :: term(),
+    rest     :: term()
+}).
+
+%% @doc     Абстрактная форма переменной.
+%%
+%% @private
+%%
+-record(var, {
+    line    :: integer(),
+    name    :: term()
+}).
+
+-record('fun', {
+    line        :: integer(),
+    value       :: term()
+}).
+
+
+% -record(function, {
+%     name        :: term(),
+%     arity       :: integer()
+% }).
+
+
 %% @doc     Абстрактная форма внешней функции.
 %%
 %% @private
@@ -173,7 +220,7 @@
 %%
 -record(clause, {
     line    :: integer(),
-    args    :: [{var,Line::integer(),Arg::atom()}],
+    args    :: list(record(var)),
     guards  :: [],
     body    :: [erl_parse:abstract_form()]
 }).
@@ -187,6 +234,17 @@
     name    :: atom(),
     arity   :: integer(),
     clauses :: list(record(clause))
+}).
+
+
+%% @doc     Абстрактная форма функции.
+%%
+%% @private
+%%
+-record(match, {
+    line    :: integer(),
+    var     :: record(var),
+    value   :: term()
 }).
 
 %% @doc     Абстрактная форма атрибута модуля.
@@ -281,7 +339,7 @@ behaviour_info(_) ->
 %%          ) -> erl_parse:abstract_form().
 %%
 parse_transform(Ast,_options)->
-    gen_dec:transform(Ast, [
+    ?MODULE:transform(Ast, [
         {module,   ?MODULE},
         {name,     decorate}
     ]).
@@ -315,8 +373,8 @@ decorate(Function, Fargs, _dargs, _options) ->
 %%              erl_parse:abstract_form().
 %% 
 transform(Ast, Options)->
-    ?debug("OLD AST",       "~p",   [Ast]),
-    ?debug("OLD FORMS",     "~s",   [?pprint(Ast)]),
+    %?debug("OLD AST",       "~p",   [Ast]),
+    %?debug("OLD FORMS",     "~s",   [?pprint(Ast)]),
     Dstate = #dstate{
         name        =   proplists:get_value(name,       Options,    decorate),
         module      =   proplists:get_value(module,     Options,    ?MODULE),
@@ -329,7 +387,8 @@ transform(Ast, Options)->
         %% сообщения о пустых декораторах.
         rogue(Rdecs)
     ]),
-    ?debug("NEW AST",       "~p",   [Nast]),
+    %?debug("Dstate",       "~p",   [Dstate]),
+    %?debug("NEW AST",       "~p",   [Nast]),
     ?debug("NEW FORMS",     "~s",   [?pprint(Nast)]),
     Nast.
 
@@ -436,7 +495,10 @@ trampoline(#function{line=Line}=Node,#dstate{dllen=Len,argabs=Argabs}=Dstate) ->
                 body    =   [
                     #call{ %% Вызов последнего декоратора в цепи.
                         line        =   Line,
-                        function    =   {atom, Line, wfname(Node, Dstate,Len)},
+                        function    =   #atom{
+                            line    =   Line,
+                            name    =   wfname(Node, Dstate,Len)
+                        },
                         args        =   Argabs
                     }
                 ]
@@ -477,7 +539,7 @@ dec(#function{line=Line}=Node,#dstate{dind=Dind,argabs=Argabs}=Dstate) ->
                 line   = Line,
                 args   = Argabs,
                 guards = [],
-                body   = [dbody(Node, Dstate)]
+                body   = dbody(Node, Dstate)
             }
         ]
     }.
@@ -492,7 +554,8 @@ dec(#function{line=Line}=Node,#dstate{dind=Dind,argabs=Argabs}=Dstate) ->
 %%          при вызове декоратора возвращается значение декорирующей функции.
 %%          Помимо всего прочего, это позволяет, сэкономить один вызов.
 %%
-%% @spec    dec(record(function), record(dstate))-> record(сall)
+%% @spec    dec(record(function), record(dstate))-> 
+%%              [record(match), record(call)].
 %%
 dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
         #dstate{
@@ -504,33 +567,67 @@ dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
             argnms   = Argnames
         }=Dstate
     ) ->
-    #call{
-        line=Line,
-        function= #remote{
-            line     = Line,
-            module   = {atom,Line,Module},
-            function = {atom,Line,Function}
-        },
-        args=[
-            %% Декорируемая функция
-            {'fun',Line,{function, wfname(Node, Dstate, Dind-1), Arity}},
-            %% Аргументы Функции
-            arglist(Line, Argnames),
-            %% Аргументы декоратора
-            vals(Line, Dargs),
-            %% Дополнительная информация
-            %% о декорируемой функции.
-            vals(Line, [
-                %% значение арности, нам уже изветсно,
-                %% повторно вычислять не придется,
-                %% если понадобится
-                {arity,     Arity},
-                {name,      Ofname},
-                {module,    Fmod},
-                {line,      Line}
+    Ffunast = #var{
+        line = Line,
+        name = erlang:list_to_atom(
+            "Fun_" ++
+            lists:append([
+                erlang:integer_to_list(X, 36)
+                || X <- (erlang:tuple_to_list(erlang:now()))
             ])
-        ]
-    }.
+        )
+    },
+    [
+        #match{
+            line    =   Line,
+            var     =   Ffunast,
+            value   =   #call{
+                line = Line,
+                function = #remote{
+                    line = Line,
+                    module = #atom{
+                        line = Line,
+                        name = Module
+                    },
+                    function = #atom{
+                        line = Line,
+                        name = Function
+                    }
+                },
+                args = [
+                    %% Декорируемая функция
+                    #'fun'{
+                        line    =   Line,
+                        value   =   {
+                            function,
+                            wfname(Node, Dstate, Dind-1),
+                            Arity
+                        }
+                    },
+                    %% Аргументы Функции
+                    arglist(Line, Argnames),
+                    %% Аргументы декоратора
+                    vals(Line, Dargs),
+                    %% Дополнительная информация
+                    %% о декорируемой функции.
+                    vals(Line, [
+                        %% значение арности, нам уже изветсно,
+                        %% повторно вычислять не придется,
+                        %% если понадобится
+                        {arity,     Arity},
+                        {name,      Ofname},
+                        {module,    Fmod},
+                        {line,      Line}
+                    ])
+                ]
+            }
+        },
+        #call{
+            line     = Line,
+            function = Ffunast,
+            args     = []
+        }
+    ].
 
 
 %% @doc     Возвращет абстрактное представление аргументов функции 
@@ -540,7 +637,7 @@ dbody(  #function{line=Line, name=Ofname, arity=Arity}=Node,
 %%              list({var,integer(),atom()}::erl_parse:abstract_form).
 %%
 args(Line, List) ->
-    [{var,Line,Arg} || Arg <- List].
+    [#var{line=Line,name=Arg} || Arg <- List].
 
 %% @doc     Возвращет абстрактное представление списка аргументов функции
 %%          на основе их списка. Сами аргументы задаются атомов вида 'Arg'
@@ -551,10 +648,19 @@ args(Line, List) ->
 %%
 arglist(Line, List) ->
     lists:foldr(
-        fun(Arg, Acc) ->
-            {cons, Line, {var, Line, Arg}, Acc}
+        fun(Arg, Rest) ->
+            #cons{
+                line  = Line,
+                value = #var{
+                    line = Line,
+                    name = Arg
+                },
+                rest  = Rest
+            }
         end,
-        {nil,Line},
+        #nil{
+            line = Line
+        },
         List
     ).
 
@@ -631,3 +737,5 @@ to_atom(Elements) ->
 %     ).
 % 
 %
+
+
