@@ -1,0 +1,6 @@
+*~
+.eunit
+ebin
+*.o
+*.beam
+*.plt
