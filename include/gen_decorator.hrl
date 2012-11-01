@@ -1,0 +1,7 @@
+-ifndef(__GEN_DECORATOR_053989251__).
+-define(__GEN_DECORATOR_053989251__, true).
+
+
+
+
+-endif. %%% __GEN_DECORATOR_053989251__
