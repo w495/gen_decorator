@@ -68,6 +68,21 @@
 %%              -decorator(log).
 %%              identity(A) -> A.
 %%          </code>
+%%          или, более лаконично
+%%          <code>
+%%              -module(some_mod).
+%%              -compile([{parse_transform, decorator}]).
+%%              -export([identity/1]}.
+%%
+%%              -decorator([
+%%                  log,
+%%                  {mtenandadd, 3},
+%%                  {mtenandadd, 2),
+%%                  {mtenandadd, 1},
+%%                  log
+%%              ]).
+%%              identity(A) -> A.
+%%          </code>
 %%
 -module(decorator).
 
@@ -199,17 +214,52 @@ decorate(Function, Fargs, Subdecorator, Options)
 
 decorate(Function, Fargs, Subdecorators, Options)
     when erlang:is_list(Subdecorators)->
-    lists:foldr(
-        fun
-            ({Subdecorator, Darg}, Fun) ->
-                erlang:apply(
-                    Subdecorator, decorate, [Fun, Fargs, Darg, Options]
-                );
-            (Subdecorator, Fun)->
-                erlang:apply(
-                    Subdecorator, decorate, [Fun, Fargs, [], Options]
-                )
+    {decorated, Decorated} = lists:foldr(
+        %%
+        %% Основная проблема, в том, что,
+        %% Арность функции, которую возвращает декоратор (fun/0),
+        %% не совпадает арностью оригинальной функции (fun/1).
+        %% Потому нужно над оригинальной функцие арганизовывать функциюобертку
+        %% с произвольнной арностью.
+        %% 
+        %% Возможно, это будет заменено в следующих версиях, тем,
+        %% что декораторы будут обязаны возвращать функцию той же арности,
+        %% что и исходная. Так сделанно в python.
+        %% На данный момент для erlang это представляется не очень удобным.
+        %%
+        %% Такой подход, с оборачиванием функции,
+        %% может привести к некоторой потери производительности,
+        %% т.к. код конструируется во время выполнения.
+        %% Для ускорения, данный модуль, можно переписать,
+        %% как чистый parse_transform, без делегирования модулю gen_decorator.
+        %% 
+        fun (Subdecorator, {original, Fun})->
+                %% Для оригинальной фунции применяем все без изменения.
+                {decorated, decorate(Fun, Fargs, Subdecorator, Options)};
+            (Subdecorator, {decorated, Fun}) ->
+                %% Для декорированной фунции, конструируем обертку
+                %% и передаем ее вместо самой функции.
+                {value, Dfun, _} =
+                    erl_eval:expr(
+                        {   'fun',?LINE,
+                            {clauses,[
+                                {clause,?LINE,
+                                    lists:map(
+                                        fun(_)->
+                                            {var,?LINE,'_'}
+                                        end,
+                                        Fargs
+                                    ),
+                                    [],
+                                    [{call,?LINE,{var,?LINE,'F'},[]}]
+                                }
+                            ]}
+                        },
+                        [{'F', Fun}]
+                    ),
+                {decorated, decorate(Dfun, Fargs, Subdecorator, Options)}
         end,
-        Function,
+        {original, Function},
         Subdecorators
-    ).
+    ),
+    Decorated.
